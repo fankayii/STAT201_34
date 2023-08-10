@@ -1,0 +1,373 @@
+# **Is the proportion of theft occurring in the neighbourhood of West Point Grey higher than Dunbar-Southlands?**
+
+By Group 34: Andy Hu, Wendi Ke, CC Liang, and Mridul Manas
+# Introduction
+
+
+### Research Question
+Is the proportion of theft occurring in the neighbourhood of West Point Grey higher than Dunbar-Southlands? 
+
+### Variables
+The random variable of interest for comparing is the proportion of theft in the neighbourhoods of Dunbar-Southlands and West Point Grey. Of the response variable, differences in proportions is the location parameter and standard error is the scale parameter.
+
+### Hypotheses
+- Null Hypothesis $H_0$: There is no difference between the proportion of theft in the neighbourhoods of Dunbar-Southlands and West Point Grey; $H_0: p_w - p_d = 0$
+- Alternative Hypothesis $H_A$: The proportion of theft in West Point Grey is higher than in Dunbar-Southlands; $H_A: p_w - p_d > 0$
+
+### Dataset Description
+To conduct our research, we use the [Vancouver Police Department (VPD) crime data](https://geodash.vpd.ca/opendata/), which includes information on the different types of crimes occurring at specific geographical locations from 2003 to 2023. We will be primarily focusing on crimes within the last 5 years, 2018 to 2022, for the neighbourhoods of Dunbar-Southlands and West Point Grey in order to base our research upon more recent and prevalent information about contemporary crimes.
+# Methods and Results
+We will carry a two-sample z-test as we are comparing two proportions. From a random sampling, we will use bootstrapping after setting the seeds to make the analysis reproducible, calculate the difference in proportions and standard error, and find the test statistic using 
+
+$$
+Z = \frac{\hat{p}_1 - \hat{p}_2}{\sqrt{\hat{p}(1-\hat{p})\left(\frac{1}{n_1} + \frac{1}{n_2}\right)}}
+$$
+
+We obtain our p-value to check for statistical significance and construct a 95% confidence interval to quantify the errors of  the estimates. Using our p-value and a significance level of 0.05, we will decide whether we should reject our null hypothesis or not.
+### Loading Packages
+
+The `tideverse` and `infer` packages allow us to clean and wrangle data, create visualizations, and make statistical inferences. We also set the plot width and height and load some colour-blind-friendly palettes.
+
+```{r}
+library(tidyverse)
+library(infer)
+
+
+options(repr.plot.width = 10, repr.plot.height = 6)
+palette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#000000", "#E69F00", 
+    "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+```
+
+### Reading the Dataset
+Our dataset is a .csv file with headers and has been uploaded to our GitHub repository so we can read it directly from web using `read_csv`.
+
+```{r}
+crime <- read.csv("https://raw.githubusercontent.com/fankayii/STAT201_34/main/crime.csv")
+head(crime)
+```
+
+### Cleaning and Wrangling Data
+Filter` for years 2018 to 2022 and the two neighbourhoods
+
+```{r}
+crime_recent_5_years <- crime %>%
+    filter(YEAR>=2018 & YEAR<=2022) %>%
+    filter(NEIGHBOURHOOD %in% c("West Point Grey","Dunbar-Southlands")) %>%
+    select(TYPE,NEIGHBOURHOOD)
+head(crime_recent_5_years)
+```
+
+Tidy crime type using `pivot_wider`
+
+```{r}
+crime_type_pivot <- crime_recent_5_years %>%
+    group_by(NEIGHBOURHOOD, TYPE) %>%
+    summarize(count = n()) %>%
+    pivot_wider(names_from = TYPE,
+                values_from = count)
+head(crime_type_pivot)
+```
+
+Combine all theft columns into one using `mutate`
+
+```{r}
+crime_theft <- crime_type_pivot %>%
+    mutate(Theft = `Other Theft` + `Theft from Vehicle` + `Theft of Bicycle` + `Theft of Vehicle`) %>%
+    select(NEIGHBOURHOOD, `Break and Enter Commercial`, `Break and Enter Residential/Other`, `Mischief`, 
+           `Offence Against a Person`, `Vehicle Collision or Pedestrian Struck (with Fatality)`,
+           `Vehicle Collision or Pedestrian Struck (with Injury)`, `Homicide`, `Theft`)
+
+na_rows <- crime_theft[!complete.cases(crime_theft), ]
+nrow(na_rows)
+```
+
+Because we do have NA values, we will tidy it by replacing NA value with 0 using `replace`
+
+```{r}
+crime_tidy_theft <- crime_theft %>%
+    replace(is.na(crime_theft), 0)
+crime_tidy_theft
+```
+
+**Our dataset is now tidy and ready to be used.**
+
+### Computing Estimates of the Parameter
+
+Tally the total crime using `mutate` and calculate the proportion of theft crime 
+
+```{r}
+crime_summary <- crime_tidy_theft %>%
+    mutate(total_crime = sum(`Break and Enter Commercial`, `Break and Enter Residential/Other`, `Mischief`, 
+           `Offence Against a Person`,`Vehicle Collision or Pedestrian Struck (with Fatality)`,
+           `Vehicle Collision or Pedestrian Struck (with Injury)`, `Homicide`, `Theft`),
+           prop = Theft / total_crime)
+crime_summary
+```
+
+Calculate the difference in proportions $p_w - p_d$
+
+```{r}
+estimate_diff <- crime_summary %>% filter(NEIGHBOURHOOD == "West Point Grey") %>% pull(prop) -
+    crime_summary %>% filter(NEIGHBOURHOOD == "Dunbar-Southlands") %>% pull(prop)
+estimate_diff
+```
+
+Calculate the standard error
+
+```{r}
+estimate_nw <- crime_summary %>% filter(NEIGHBOURHOOD == "West Point Grey") %>% pull(Theft)
+estimate_nd <- crime_summary %>% filter(NEIGHBOURHOOD == "Dunbar-Southlands") %>% pull(Theft)
+estimate_pw <- crime_summary %>% filter(NEIGHBOURHOOD == "West Point Grey") %>% pull(prop)
+estimate_pd <- crime_summary %>% filter(NEIGHBOURHOOD == "Dunbar-Southlands") %>% pull(prop)
+estimate_p_hat <- (estimate_nw * estimate_pw + estimate_nd * estimate_pd) / (estimate_nw + estimate_nd)
+
+estimate_std_error <- sqrt(estimate_p_hat * (1 - estimate_p_hat) * (1 / estimate_nw + 1 / estimate_nd))
+estimate_std_error
+```
+
+Present the estimates of the parameter in a table using `tibble`
+
+```{r}
+tibble(n_west_point_grey = estimate_nw,
+       n_dunbar_southlands = estimate_nd,
+       p_west_point_grey = estimate_pw,
+       p_dunbar_southlands = estimate_pd,
+       p_hat = estimate_p_hat,
+       diff_in_props = estimate_diff,
+       std_error = estimate_std_error)
+```
+
+### Visualizing Raw Data
+
+Let's take a look at the dataset.
+
+```{r}
+all_neighbourhods_all_crime <- crime %>%
+    group_by(NEIGHBOURHOOD, TYPE) %>%
+    summarize(count = n()) %>%
+    ggplot(aes(x = NEIGHBOURHOOD, y = count, fill = TYPE)) +
+    geom_bar(stat = "identity") +
+    labs(title = "All Crime Count in the All Neighbourhoods",
+         x = "Neighbourhood",
+         y = "Number of Crime",
+         colour = "Type of Crime") +
+    theme(text = element_text(size = 15)) +
+    scale_fill_manual(values = palette)
+
+all_neighbourhods_all_crime
+```
+
+Let's visualize the crime count and proportion.
+
+```{r}
+two_neighbourhoods_all_crime <- crime_recent_5_years %>%
+    group_by(NEIGHBOURHOOD, TYPE) %>%
+    summarize(count = n()) %>%
+    ggplot(aes(x = NEIGHBOURHOOD, y = count, fill = TYPE)) +
+    geom_bar(stat = "identity") +
+    labs(title = "All Crime Count in the two Neighbourhoods",
+         x = "Neighbourhood",
+         y = "Number of Crime",
+         colour = "Type of Crime") +
+    theme(text = element_text(size = 15)) +
+    scale_fill_manual(values = palette)
+
+two_neighbourhoods_all_crime
+```
+
+Next, we combine the major crime type into one: break and enter, theft, vehicle collision, and others.
+
+```{r}
+group_by_crime <- crime_recent_5_years %>%
+    group_by(NEIGHBOURHOOD, TYPE) %>%
+    summarize(count = n()) %>%
+    ggplot(aes(x = NEIGHBOURHOOD, y = count, fill = TYPE)) +
+    geom_bar(stat = "identity") +
+    labs(title = "All Large Crime Type Combined",
+         x = "Neighbourhood",
+         y = "Number of Crime",
+        colour = "Type of Crime") +
+    theme(text = element_text(size = 15)) +
+    scale_fill_manual(labels = c("Break and Enter Commercial", "Break and Enter Residential/Other", "Homicide", "Mischief", 
+                                  "Offence Against a Person", "Other Theft", "Theft from Vehicle", "Theft of Bicycle", 
+                                  "Theft of Vehicle", "Vehicle Collision or Pedestrian Struck (with Fatality)", 
+                                  "Vehicle Collision or Pedestrian Struck (with Injury)"), 
+                       values = c("#E69F00", "#E69F00", "#56B4E9", "#56B4E9", "#56B4E9", "#009E73", "#009E73", "#009E73", 
+                                  "#009E73", "#CC79A7", "#CC79A7"))
+group_by_crime
+```
+
+From this plot, we can see that theft is indeed the most common type of crime as it has the greatest areas on the graph.
+
+```{r}
+estimate_proportion_plot <- ggplot(crime_summary, aes(x = NEIGHBOURHOOD, y = prop, fill = NEIGHBOURHOOD)) +
+    geom_bar(stat = "identity") +
+    labs(title = "Proportion of Theft in Two Neighbourhoods",
+       x = "Neighbourhoods",
+       y = "Proportion of Theft") +
+    theme(text = element_text(size = 15)) +
+    scale_fill_manual(values= c("#D55E00", "#CC79A7"))
+estimate_proportion_plot
+```
+
+We can see that the proportion of theft crime are similar for the two neighbourhoods but West Point Grey is slightly higher. We can also see that for both neighbourhood, theft is the majority type of crime.
+
+**Now that We have completed the exploratory data analysis (EDA), we will move onto the actual analysis.**
+
+We first take a large random sample from the population. As we are now involved with random sampling, we need to set the seed to make the analysis reproducible.
+
+```{r}
+set.seed(1)
+
+sample <- crime_recent_5_years %>%
+    rep_sample_n(500)
+head(sample)
+From the random sample, we will make create bootstrap samples. Again, we need to set the seed for random sampling and we will keep the seed consisttent for simplicity.
+set.seed(1)
+
+bootstrap_samples <- sample %>%
+    rep_sample_n(size = 500, reps = 1000, replace = TRUE)
+head(bootstrap_samples)
+```
+
+Then, we will tidy our data like what we did for EDA.
+
+```{r}
+select_bootstrap <- bootstrap_samples %>%
+    group_by(replicate, NEIGHBOURHOOD, TYPE) %>%
+    summarize(count = n()) %>%
+    pivot_wider(names_from = TYPE,
+                values_from = count) %>%
+    mutate(Theft = `Other Theft` + `Theft from Vehicle` + `Theft of Bicycle` + `Theft of Vehicle`) %>%
+    select(-`Other Theft`, -`Theft from Vehicle`, -`Theft of Bicycle`, -`Theft of Vehicle`)
+
+tidy_bootstrap <- select_bootstrap %>%
+    replace(is.na(select_bootstrap), 0)
+
+head(tidy_bootstrap)
+```
+
+Next, we will compute the parameters the same way, with the theft proportion as the first.
+
+```{r}
+theft_proportion <- tidy_bootstrap %>%
+    mutate(total_crime = sum(`Break and Enter Commercial`, `Break and Enter Residential/Other`, `Mischief`, 
+           `Offence Against a Person`, `Vehicle Collision or Pedestrian Struck (with Injury)`, `Theft`),
+           prop = Theft / total_crime) %>%
+    select(replicate, NEIGHBOURHOOD, Theft, total_crime, prop)
+head(theft_proportion)
+```
+
+We will now calculate the difference in proportions again with $p_w - p_d$
+
+```{r}
+diff_in_prop <- theft_proportion %>% filter(NEIGHBOURHOOD == "West Point Grey") %>% pull(prop) -
+    theft_proportion %>% filter(NEIGHBOURHOOD == "Dunbar-Southlands") %>% pull(prop)
+head(diff_in_prop)
+```
+
+Calculate the standard error
+
+```{r}
+nw <- theft_proportion %>% filter(NEIGHBOURHOOD == "West Point Grey") %>% pull(Theft)
+nd <- theft_proportion %>% filter(NEIGHBOURHOOD == "Dunbar-Southlands") %>% pull(Theft)
+pw <- theft_proportion %>% filter(NEIGHBOURHOOD == "West Point Grey") %>% pull(prop)
+pd <- theft_proportion %>% filter(NEIGHBOURHOOD == "Dunbar-Southlands") %>% pull(prop)
+p_hat <- (nw * pw + nd * pd) / (nw + nd)
+
+std_error <- sqrt(p_hat * (1 - p_hat) * (1 / nw + 1 / nd))
+head(std_error)
+```
+
+To tidy the data, we also put them in the following table.
+
+```{r}
+diff_in_proportion <- theft_proportion %>%
+    select(replicate, NEIGHBOURHOOD, prop) %>%
+    pivot_wider(names_from = NEIGHBOURHOOD,
+                values_from = prop) %>%
+    tibble(n_west_point_grey = nw,
+           n_dunbar_southlands = nd,
+           p_west_point_grey = pw,
+           p_dunbar_southlands = pd,
+           p_hat = p_hat,
+           diff_in_prop = diff_in_prop,
+           std_error = std_error)
+head(diff_in_proportion)
+```
+
+Then, we calculate the test-statistic.
+
+```{r}
+test_statistic <- (pw - pd) / sqrt(p_hat * (1 - p_hat) * (1 / nw + 1 / nd))
+head(test_statistic)
+try using the infer package
+
+crime_transform <- crime_recent_5_years %>%
+  mutate(TYPE= case_when(
+    TYPE %in% c("Other Theft", "Theft from Vehicle", "Theft of Bicycle", "Theft of Vehicle") ~ "theft",
+    TRUE ~ "not theft"
+  ))
+
+set.seed(1)
+infer_sample <- crime_transform %>%
+    rep_sample_n(500)
+null_model <- infer_sample %>%
+    specify(TYPE~NEIGHBOURHOOD,success="theft") %>%
+    hypothesise(null="independence")%>%
+    generate(reps=1000,type="permute")%>%
+    calculate(stat="diff in props", order = c("West Point Grey", "Dunbar-Southlands"))
+head(null_model)
+```
+    
+```{r}
+obs_prop_diff <- infer_sample %>%
+    group_by(NEIGHBOURHOOD)%>%
+    summarise(prop=mean(TYPE=="theft"))%>%
+    pivot_wider(names_from =NEIGHBOURHOOD, values_from = prop) %>%
+    transmute(diff = `West Point Grey` - `Dunbar-Southlands`) %>%
+    pull(diff)
+obs_prop_diff
+```
+
+```{r}
+theft_result_plot <- 
+   null_model %>%
+   visualize() + 
+   shade_p_value(obs_stat = obs_prop_diff, direction = "both") +
+   xlab("prop diff")
+theft_result_plot
+```
+
+```{r}
+p_value <- null_model %>%
+    get_p_value(obs_stat = obs_prop_diff,direction = "right")
+p_value 
+```
+
+# Discussion
+
+In this section, you’ll interpret the results you obtained in the previous section with respect to the main question/goal of your project.
+
+* Summarize what you found, and the implications/impact of your findings.
+* If relevant, discuss whether your results were what you expected to find.
+* Discuss future questions/research this study could lead to.
+
+We expect that West Point Grey will have a statistically significant higher proportion of theft compared to Dunbar Southlands, because it is closer to the UBC campus, which likely has a higher population density and floating population.
+
+One drawback of our study is while big data may explain differences in the danger of theft and support governmental measures, it cannot explain individual cases or provide detailed plan of how to minimize the risks. Furthermore, a challenge we face is how to extrapolate our analysis to predict future crime rates, as that is the only important information for reducing crimes.
+
+Our findings could impact residents living in either neighbourhoods if not both to be more aware of theft in their area and enforce relevant safety measures. It can also help individuals, especially UBC students living off-campus to decide which neighbourhood they would rather live in should that have related items such as bicycles or vehicles.
+
+
+Should we find a statistical significance between the proportion of theft in both areas, it may raise further questions in determining the underlying motivations behind such thefts and what features cause an increase in theft in one area compared to another.
+# References
+Branch, Legislative Services. “Consolidated Federal Laws of Canada, Criminal Code.” Criminal Code, 27 July 2023, [laws-lois.justice.gc.ca/eng/acts/c-46/section-322.html](laws-lois.justice.gc.ca/eng/acts/c-46/section-322.html). 
+
+Crime Statistics. “Crime Statistics.” Vancouver Police Department, 19 July 2023, [vpd.ca/crime-statistics/](vpd.ca/crime-statistics/). 
+
+Government of Canada, Department of Justice. “State of the Criminal Justice System - 2019 Report.” Results by Outcome, 7 July 2021, [www.justice.gc.ca/eng/cj-jp/state-etat/2019rpt-rap2019/p7.html](www.justice.gc.ca/eng/cj-jp/state-etat/2019rpt-rap2019/p7.html). 
+
+UBC. “Your Guide to Neighborhoods in Vancouver: UBC Vantage College.” Your Guide to Neighborhoods in Vancouver | UBC Vantage College, [vantagecollege.ubc.ca/blog/your-guide-neighborhoods-vancouver](vantagecollege.ubc.ca/blog/your-guide-neighborhoods-vancouver). Accessed 30 July 2023. 
+
+Vancouver Police Department. “Vancouver Police Department Crime Data.” Accessed 30 July 2023. 
